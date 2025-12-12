@@ -13,7 +13,7 @@ type BlockType = 'text' | 'image' | 'code' | 'drawing';
 interface ContentBlock {
   id: string;
   type: BlockType;
-  content: string; // Text content, Image URL (base64), or Code string
+  content: string; 
   language?: string;
 }
 
@@ -24,7 +24,7 @@ interface FileNode {
   parent_id: string | null;
   language?: string;
   question?: string;
-  code?: string; // For NickPad, this stores JSON string of the Blocks Array
+  code?: string;
   output?: string;
   children?: FileNode[]; 
 }
@@ -225,6 +225,7 @@ const CodeEditor = () => {
 
   // --- NICKPAD BLOCK ACTIONS ---
   
+  // Updated addBlock to support appending (-1 index)
   const addBlock = (type: BlockType, index: number) => {
     const newBlock: ContentBlock = {
       id: Date.now().toString(),
@@ -232,9 +233,16 @@ const CodeEditor = () => {
       content: '',
       language: type === 'code' ? 'javascript' : undefined
     };
-    const newBlocks = [...blocks];
-    newBlocks.splice(index + 1, 0, newBlock);
-    setBlocks(newBlocks);
+    
+    if (index === -1) {
+      // Append to end
+      setBlocks(prev => [...prev, newBlock]);
+    } else {
+      // Insert at index
+      const newBlocks = [...blocks];
+      newBlocks.splice(index + 1, 0, newBlock);
+      setBlocks(newBlocks);
+    }
   };
 
   const updateBlock = (id: string, content: string, language?: string) => {
@@ -299,11 +307,8 @@ const CodeEditor = () => {
       let dataToSave = {};
       
       if (selectedFile.type === 'nickpad') {
-        // Safe stringify
         const jsonContent = JSON.stringify(blocks);
         dataToSave = { code: jsonContent };
-        
-        // Update local state temporarily
         setSelectedFile({ ...selectedFile, code: jsonContent });
       } else {
         dataToSave = { question, code, output };
@@ -311,16 +316,10 @@ const CodeEditor = () => {
       }
 
       const { error } = await supabase.from('files').update(dataToSave).eq('id', selectedFile.id);
-      
       if (error) throw error;
-
-      // CRITICAL: Re-fetch data to ensure the sidebar source-of-truth is updated
-      // This fixes the issue where data isn't "saving" when you switch away
       await fetchData();
-      
       showNotification('Saved successfully!', 'success');
     } catch (error: any) {
-      console.error(error);
       showNotification('Error saving: ' + error.message, 'error');
     }
   };
@@ -398,7 +397,7 @@ const CodeEditor = () => {
 
   return (
     <div className="h-screen bg-gray-900 text-gray-100 flex flex-col relative">
-      {/* Header - Centered Title */}
+      {/* Header */}
       <div className="bg-gray-800 border-b border-gray-700 px-6 py-4 flex items-center justify-center relative">
         <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent text-center">
           Code & NickPad
@@ -448,13 +447,14 @@ const CodeEditor = () => {
 
               <div className="flex-1 overflow-y-auto bg-gray-900 relative">
                 
-                {/* --- NICKPAD BLOCK EDITOR (Full Width) --- */}
+                {/* --- NICKPAD BLOCK EDITOR --- */}
                 {selectedFile.type === 'nickpad' && (
                   <div className="px-4 py-6 w-full pb-48"> 
                     {blocks.map((block, index) => (
                       <div key={block.id} className="mb-4 group relative pl-8 w-full">
                         
-                        {/* Block Controls */}
+                        {/* Block Controls - Always visible on mobile if needed, but typically hard to hit. 
+                            We rely on bottom toolbar for main adding. */}
                         <div className="absolute left-0 top-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                           <button onClick={() => moveBlock(index, 'up')} className="p-1 hover:bg-gray-700 rounded text-gray-400"><ArrowUp size={12} /></button>
                           <button onClick={() => deleteBlock(index)} className="p-1 hover:bg-red-900 rounded text-red-400"><Trash2 size={12} /></button>
@@ -520,8 +520,9 @@ const CodeEditor = () => {
                            />
                         )}
 
-                        {/* ADD BUTTONS */}
-                        <div className="h-4 -mb-4 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity relative z-10 mt-2">
+                        {/* ADD BUTTONS (Inline) - UPDATED FOR TOUCH VISIBILITY */}
+                        {/* We use opacity-30 so they are visible ghosts, fully visible on hover/touch */}
+                        <div className="h-4 -mb-4 opacity-30 hover:opacity-100 flex items-center justify-center gap-2 transition-opacity relative z-10 mt-2">
                            <div className="bg-gray-800 rounded-full shadow-lg flex border border-gray-700 scale-75 hover:scale-100 transition-transform">
                               <button onClick={() => addBlock('text', index)} className="p-2 hover:bg-gray-700 rounded-l-full text-blue-400" title="Add Text"><Type size={16} /></button>
                               <button onClick={() => addBlock('code', index)} className="p-2 hover:bg-gray-700 text-yellow-400" title="Add Code"><CodeIcon size={16} /></button>
@@ -532,13 +533,31 @@ const CodeEditor = () => {
 
                       </div>
                     ))}
-
+                    
+                    {/* Empty State */}
                     {blocks.length === 0 && (
                       <div className="text-center py-12 text-gray-500">
                         <p className="mb-4">Document is empty</p>
-                        <button onClick={() => addBlock('text', -1)} className="px-4 py-2 bg-blue-600 text-white rounded">Start Writing</button>
                       </div>
                     )}
+                  </div>
+                )}
+                
+                {/* --- FLOATING BOTTOM TOOLBAR (NEW) --- */}
+                {selectedFile.type === 'nickpad' && (
+                  <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-gray-800 border border-gray-700 shadow-2xl rounded-full px-6 py-3 flex gap-6 z-50">
+                    <button onClick={() => addBlock('text', -1)} className="flex flex-col items-center gap-1 text-blue-400 hover:text-blue-300">
+                      <Type size={20} /> <span className="text-[10px]">Text</span>
+                    </button>
+                    <button onClick={() => addBlock('code', -1)} className="flex flex-col items-center gap-1 text-yellow-400 hover:text-yellow-300">
+                      <CodeIcon size={20} /> <span className="text-[10px]">Code</span>
+                    </button>
+                    <button onClick={() => addBlock('image', -1)} className="flex flex-col items-center gap-1 text-purple-400 hover:text-purple-300">
+                      <ImageIcon size={20} /> <span className="text-[10px]">Image</span>
+                    </button>
+                    <button onClick={() => addBlock('drawing', -1)} className="flex flex-col items-center gap-1 text-green-400 hover:text-green-300">
+                      <PenTool size={20} /> <span className="text-[10px]">Draw</span>
+                    </button>
                   </div>
                 )}
 
